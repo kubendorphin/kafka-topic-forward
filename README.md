@@ -14,13 +14,13 @@
 ## 构建
 
 ```bash
-go build -o kafka_topic_forward.exe .
+go build -o ./bin/kafka_topic_forward.exe .
 ```
 
 ## 运行
 
 ```bash
-./kafka_topic_forward.exe -config config.yaml
+./bin/kafka_topic_forward.exe -config config.yaml
 ```
 
 ## 配置说明（config.yaml）
