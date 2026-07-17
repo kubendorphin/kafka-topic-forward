@@ -74,14 +74,14 @@ jobs:
         GOOS: ${{ matrix.os }}
         GOARCH: ${{ matrix.arch }}
       run: |
-          NAME=kafka-topic-forward-${{ matrix.os }}-${{ matrix.arch }}
+          NAME=ktf-${{ matrix.os }}-${{ matrix.arch }}
           go build -o $NAME main.go
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: kafka-topic-forward-${{ matrix.os }}-${{ matrix.arch }}
-        path: kafka-topic-forward-${{ matrix.os }}-${{ matrix.arch }}*
+        name: ktf-${{ matrix.os }}-${{ matrix.arch }}
+        path: ktf-${{ matrix.os }}-${{ matrix.arch }}*
 
   release:
     needs: build
