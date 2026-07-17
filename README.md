@@ -1,4 +1,4 @@
-# kafka_topic_forward
+# kafka-topic-forward
 
 将 Kafka 一个 topic 的所有数据转发到另一个 topic，源/目标信息通过配置文件读取，支持限速。
 
@@ -14,13 +14,13 @@
 ## 构建
 
 ```bash
-go build -o ./bin/kafka_topic_forward.exe .
+go build -o ./bin/ktf.exe .
 ```
 
 ## 运行
 
 ```bash
-./bin/kafka_topic_forward.exe -config config.yaml
+./bin/ktf.exe -config config.yaml
 ```
 
 ## 配置说明（config.yaml）
