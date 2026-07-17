@@ -1,0 +1,28 @@
+# 源 kafka 配置
+source:
+  brokers:
+    - "127.0.0.1:9092"
+  topic: "source-topic"
+  group_id: "kafka-topic-forward"   # 消费组, 不填默认为 kafka-topic-forward
+
+# 目标 kafka 配置
+dest:
+  brokers:
+    - "127.0.0.1:9092"
+  topic: "dest-topic"
+
+# 转发行为参数
+forward:
+  start_from_earliest: true   # true=从最早开始转发, false=只转发新数据
+  batch_size: 100             # 生产端批量条数
+  batch_timeout: 1s           # 生产端批量最大等待时间
+  commit_interval: 1s         # 消费位点提交间隔
+  min_bytes: 1                # 单次拉取最小字节
+  max_bytes: 10485760         # 单次拉取最大字节 (10MB)
+
+# 限速参数
+rate_limit:
+  enabled: true               # 是否开启限速
+  messages_per_second: 1000   # 每秒转发消息条数上限, <=0 表示不限
+  bytes_per_second: 0         # 每秒转发字节上限, <=0 表示不限
+  burst: 0                    # 令牌桶突发容量, <=0 自动取速率值
