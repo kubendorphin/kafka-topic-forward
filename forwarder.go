@@ -14,11 +14,11 @@ import (
 
 // Forwarder 负责从源 topic 消费并转发到目标 topic
 type Forwarder struct {
-	cfg      *Config
-	reader   *kafka.Reader
-	writer   *kafka.Writer
-	msgLim   *rate.Limiter // 按条数限速
-	byteLim  *rate.Limiter // 按字节限速
+	cfg     *Config
+	reader  *kafka.Reader
+	writer  *kafka.Writer
+	msgLim  *rate.Limiter // 按条数限速
+	byteLim *rate.Limiter // 按字节限速
 
 	// 统计
 	totalMsgs  uint64

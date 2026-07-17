@@ -10,16 +10,16 @@ import (
 
 // Config 程序总配置
 type Config struct {
-	Source   EndpointConfig `yaml:"source"`   // 源 kafka
-	Dest     EndpointConfig `yaml:"dest"`     // 目标 kafka
-	Forward  ForwardConfig  `yaml:"forward"`  // 转发相关参数
+	Source    EndpointConfig  `yaml:"source"`     // 源 kafka
+	Dest      EndpointConfig  `yaml:"dest"`       // 目标 kafka
+	Forward   ForwardConfig   `yaml:"forward"`    // 转发相关参数
 	RateLimit RateLimitConfig `yaml:"rate_limit"` // 限速参数
 }
 
 // EndpointConfig 一个 kafka 端点(源或目标)
 type EndpointConfig struct {
-	Brokers []string `yaml:"brokers"` // broker 地址列表, 如 ["127.0.0.1:9092"]
-	Topic   string   `yaml:"topic"`   // topic 名称
+	Brokers []string `yaml:"brokers"`  // broker 地址列表, 如 ["127.0.0.1:9092"]
+	Topic   string   `yaml:"topic"`    // topic 名称
 	GroupID string   `yaml:"group_id"` // 消费组(仅源端使用)
 }
 
@@ -35,10 +35,10 @@ type ForwardConfig struct {
 
 // RateLimitConfig 限速参数
 type RateLimitConfig struct {
-	Enabled            bool `yaml:"enabled"`             // 是否开启限速
-	MessagesPerSecond  int  `yaml:"messages_per_second"` // 每秒转发消息条数上限, <=0 表示不按条数限速
-	BytesPerSecond     int  `yaml:"bytes_per_second"`    // 每秒转发字节上限, <=0 表示不按字节限速
-	Burst              int  `yaml:"burst"`               // 令牌桶突发容量, <=0 时自动取速率值
+	Enabled           bool `yaml:"enabled"`             // 是否开启限速
+	MessagesPerSecond int  `yaml:"messages_per_second"` // 每秒转发消息条数上限, <=0 表示不按条数限速
+	BytesPerSecond    int  `yaml:"bytes_per_second"`    // 每秒转发字节上限, <=0 表示不按字节限速
+	Burst             int  `yaml:"burst"`               // 令牌桶突发容量, <=0 时自动取速率值
 }
 
 // LoadConfig 从文件加载配置并填充默认值
