@@ -18,20 +18,20 @@ type Config struct {
 
 // EndpointConfig 一个 kafka 端点(源或目标)
 type EndpointConfig struct {
-	Brokers []string `yaml:"brokers"` // broker 地址列表, 如 ["127.0.0.1:9092"]
-	Topic   string   `yaml:"topic"` // topic 名称
-	GroupID string   `yaml:"group_id"` // 消费组(仅源端使用)
-	TLS     TLSConfig `yaml:"tls,omitempty"` // TLS 配置
+	Brokers []string   `yaml:"brokers"`        // broker 地址列表, 如 ["127.0.0.1:9092"]
+	Topic   string     `yaml:"topic"`          // topic 名称
+	GroupID string     `yaml:"group_id"`       // 消费组(仅源端使用)
+	TLS     TLSConfig  `yaml:"tls,omitempty"`  // TLS 配置
 	Auth    AuthConfig `yaml:"auth,omitempty"` // SASL 认证配置
 }
 
 // TLSConfig TLS 配置
 type TLSConfig struct {
-	Enable           bool   `yaml:"enable"` // 是否启用 TLS
-	CACertFile       string `yaml:"ca_cert_file,omitempty"` // CA 证书路径
-	CertFile         string `yaml:"cert_file,omitempty"`    // 客户端证书路径
-	KeyFile          string `yaml:"key_file,omitempty"`     // 客户端私钥路径
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify"` // 跳过证书验证
+	Enable             bool   `yaml:"enable"`                 // 是否启用 TLS
+	CACertFile         string `yaml:"ca_cert_file,omitempty"` // CA 证书路径
+	CertFile           string `yaml:"cert_file,omitempty"`    // 客户端证书路径
+	KeyFile            string `yaml:"key_file,omitempty"`     // 客户端私钥路径
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`   // 跳过证书验证
 }
 
 // AuthConfig SASL 认证配置
