@@ -2,13 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/sasl"
+	"github.com/segmentio/kafka-go/sasl/plain"
+	"github.com/segmentio/kafka-go/sasl/scram"
 	"golang.org/x/time/rate"
 )
 
@@ -32,6 +38,9 @@ func NewForwarder(cfg *Config) *Forwarder {
 		startOffset = kafka.FirstOffset
 	}
 
+	sourceDialer := buildDialer(&cfg.Source)
+	destDialer := buildDialer(&cfg.Dest)
+
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        cfg.Source.Brokers,
 		Topic:          cfg.Source.Topic,
@@ -40,12 +49,18 @@ func NewForwarder(cfg *Config) *Forwarder {
 		MinBytes:       cfg.Forward.MinBytes,
 		MaxBytes:       cfg.Forward.MaxBytes,
 		CommitInterval: cfg.Forward.CommitInterval,
+		Dialer:         sourceDialer,
+		MaxWait:        2 * time.Second,
 	})
 
 	writer := &kafka.Writer{
-		Addr:         kafka.TCP(cfg.Dest.Brokers...),
-		Topic:        cfg.Dest.Topic,
-		Balancer:     &kafka.LeastBytes{},
+		Addr:     kafka.TCP(cfg.Dest.Brokers...),
+		Topic:    cfg.Dest.Topic,
+		Balancer: &kafka.LeastBytes{},
+		Transport: &kafka.Transport{
+			TLS:  destDialer.TLS,
+			SASL: destDialer.SASLMechanism,
+		},
 		BatchSize:    cfg.Forward.BatchSize,
 		BatchTimeout: cfg.Forward.BatchTimeout,
 		RequiredAcks: kafka.RequireAll,
@@ -78,6 +93,76 @@ func NewForwarder(cfg *Config) *Forwarder {
 	return f
 }
 
+// buildDialer 根据端点配置创建带认证能力的 Dialer
+func buildDialer(ep *EndpointConfig) *kafka.Dialer {
+	d := &kafka.Dialer{
+		Timeout:   10 * time.Second,
+		DualStack: true,
+	}
+
+	// TLS
+	if ep.TLS.Enable {
+		tlsCfg := &tls.Config{
+			InsecureSkipVerify: ep.TLS.InsecureSkipVerify,
+		}
+		if ep.TLS.CACertFile != "" || ep.TLS.CertFile != "" || ep.TLS.KeyFile != "" {
+			cert, err := tls.LoadX509KeyPair(ep.TLS.CertFile, ep.TLS.KeyFile)
+			if err != nil {
+				log.Printf("警告: 加载客户端证书失败: %v", err)
+			} else {
+				tlsCfg.Certificates = []tls.Certificate{cert}
+			}
+		}
+		if ep.TLS.CACertFile != "" {
+			caCert, err := os.ReadFile(ep.TLS.CACertFile)
+			if err != nil {
+				log.Printf("警告: 读取 CA 证书失败: %v", err)
+			} else {
+				pool := x509.NewCertPool()
+				if pool.AppendCertsFromPEM(caCert) {
+					tlsCfg.RootCAs = pool
+				} else {
+					log.Printf("警告: CA 证书解析失败")
+				}
+			}
+		}
+		d.TLS = tlsCfg
+	}
+
+	// SASL
+	if ep.Auth.Mechanism != "" {
+		var mech sasl.Mechanism
+		switch ep.Auth.Mechanism {
+		case "plain":
+			mech = plain.Mechanism{
+				Username: ep.Auth.Username,
+				Password: ep.Auth.Password,
+			}
+		case "scram-sha-256":
+			m, err := scram.Mechanism(scram.SHA256, ep.Auth.Username, ep.Auth.Password)
+			if err != nil {
+				log.Printf("警告: 创建 SCRAM-SHA-256 机制失败: %v", err)
+			} else {
+				mech = m
+			}
+		case "scram-sha-512":
+			m, err := scram.Mechanism(scram.SHA512, ep.Auth.Username, ep.Auth.Password)
+			if err != nil {
+				log.Printf("警告: 创建 SCRAM-SHA-512 机制失败: %v", err)
+			} else {
+				mech = m
+			}
+		default:
+			log.Printf("警告: 不支持的 SASL mechanism: %s", ep.Auth.Mechanism)
+		}
+		if mech != nil {
+			d.SASLMechanism = mech
+		}
+	}
+
+	return d
+}
+
 // MaxBurstBytesHint 字节令牌桶容量至少要能容纳一条消息, 这里给个经验下限
 func (r RateLimitConfig) MaxBurstBytesHint() int {
 	return 1 << 20 // 1MB
@@ -105,7 +190,13 @@ func (f *Forwarder) Run(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
 				return nil
 			}
-			return fmt.Errorf("拉取消息失败: %w", err)
+			log.Printf("拉取消息失败, 等待后重试: %v", err)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(5 * time.Second):
+				continue
+			}
 		}
 
 		// 限速: 在写入前等待令牌
@@ -125,7 +216,13 @@ func (f *Forwarder) Run(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
-			return fmt.Errorf("写入目标 topic 失败: %w", err)
+			log.Printf("写入目标 topic 失败, 等待后重试: %v", err)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(5 * time.Second):
+				continue
+			}
 		}
 
 		// 写入成功后提交源端位点, 保证至少一次语义
@@ -133,7 +230,7 @@ func (f *Forwarder) Run(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
-			return fmt.Errorf("提交位点失败: %w", err)
+			log.Printf("提交位点失败: %v", err)
 		}
 
 		f.totalMsgs++

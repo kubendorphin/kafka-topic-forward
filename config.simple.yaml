@@ -1,0 +1,20 @@
+# 简单配置示例（无认证、无 TLS）
+
+source:
+  brokers:
+    - "localhost:9092"
+  topic: "source-topic"
+  group_id: "kafka-forward"
+
+dest:
+  brokers:
+    - "localhost:9092"
+  topic: "dest-topic"
+
+forward:
+  start_from_earliest: true
+  batch_size: 100
+  batch_timeout: 1s
+
+rate_limit:
+  enabled: false

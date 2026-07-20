@@ -1,16 +1,4 @@
-package main
-
-import (
-	"context"
-	"flag"
-	"fmt"
-	"log"
-	"os"
-	"os/signal"
-	"syscall"
-)
-
-const exampleConfig = `# Kafka Topic Forward 配置示例
+# Kafka Topic Forward 配置示例
 # 从源 Kafka topic 消费消息并转发到目标 Kafka topic
 
 # 源 Kafka 配置
@@ -74,34 +62,3 @@ rate_limit:
   messages_per_second: 1000
   bytes_per_second: 10485760  # 10MB/s
   burst: 100
-`
-
-func main() {
-	configPath := flag.String("config", "config.yaml", "配置文件路径")
-	genConfig := flag.Bool("gen-config-example", false, "生成配置示例文件")
-	flag.Parse()
-
-	// 生成配置示例
-	if *genConfig {
-		filename := "config.example.yaml"
-		if err := os.WriteFile(filename, []byte(exampleConfig), 0644); err != nil {
-			log.Fatalf("生成配置示例失败: %v", err)
-		}
-		fmt.Printf("配置示例已生成: %s\n", filename)
-		return
-	}
-
-	cfg, err := LoadConfig(*configPath)
-	if err != nil {
-		log.Fatalf("加载配置失败: %v", err)
-	}
-
-	// 监听退出信号, 实现优雅关闭
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	forwarder := NewForwarder(cfg)
-	if err := forwarder.Run(ctx); err != nil {
-		log.Fatalf("转发运行出错: %v", err)
-	}
-}
