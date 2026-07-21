@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -180,61 +179,111 @@ func (f *Forwarder) Run(ctx context.Context) error {
 	// 定期打印统计
 	go f.reportStats(ctx)
 
-	for {
-		if ctx.Err() != nil {
+	// 批量缓冲区
+	batchSize := f.cfg.Forward.BatchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+	batchTimeout := f.cfg.Forward.BatchTimeout
+	if batchTimeout <= 0 {
+		batchTimeout = 1 * time.Second
+	}
+
+	batch := make([]kafka.Message, 0, batchSize)
+	commitBatch := make([]kafka.Message, 0, batchSize)
+	ticker := time.NewTicker(batchTimeout)
+	defer ticker.Stop()
+
+	flushBatch := func() error {
+		if len(batch) == 0 {
 			return nil
 		}
 
-		m, err := f.reader.FetchMessage(ctx)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+		// 批量写入
+		if err := f.writer.WriteMessages(ctx, batch...); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return err
+			}
+			log.Printf("批量写入失败 (%d 条), 等待后重试: %v", len(batch), err)
+			time.Sleep(5 * time.Second)
+			return err
+		}
+
+		// 批量提交位点
+		if len(commitBatch) > 0 {
+			if err := f.reader.CommitMessages(ctx, commitBatch...); err != nil {
+				if !errors.Is(err, context.Canceled) {
+					log.Printf("批量提交位点失败: %v", err)
+				}
+			}
+		}
+
+		// 更新统计
+		f.totalMsgs += uint64(len(batch))
+		for i := range batch {
+			f.totalBytes += uint64(len(batch[i].Key) + len(batch[i].Value))
+		}
+
+		// 清空批次
+		batch = batch[:0]
+		commitBatch = commitBatch[:0]
+		ticker.Reset(batchTimeout)
+
+		return nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			// 退出前尝试刷新剩余消息
+			flushBatch()
+			return nil
+
+		case <-ticker.C:
+			// 超时刷新
+			if err := flushBatch(); err != nil && errors.Is(err, context.Canceled) {
 				return nil
 			}
-			log.Printf("拉取消息失败, 等待后重试: %v", err)
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(5 * time.Second):
+
+		default:
+			// 非阻塞拉取消息
+			m, err := f.reader.FetchMessage(ctx)
+			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+					flushBatch()
+					return nil
+				}
+				log.Printf("拉取消息失败, 等待后重试: %v", err)
+				time.Sleep(5 * time.Second)
 				continue
 			}
-		}
 
-		// 限速: 在写入前等待令牌
-		if err := f.waitRateLimit(ctx, len(m.Key)+len(m.Value)); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return nil
-			}
-			return fmt.Errorf("限速等待失败: %w", err)
-		}
-
-		out := kafka.Message{
-			Key:     m.Key,
-			Value:   m.Value,
-			Headers: m.Headers,
-		}
-		if err := f.writer.WriteMessages(ctx, out); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return nil
-			}
-			log.Printf("写入目标 topic 失败, 等待后重试: %v", err)
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(5 * time.Second):
+			// 限速: 在加入批次前等待令牌
+			msgSize := len(m.Key) + len(m.Value)
+			if err := f.waitRateLimit(ctx, msgSize); err != nil {
+				if errors.Is(err, context.Canceled) {
+					flushBatch()
+					return nil
+				}
+				log.Printf("限速等待失败: %v", err)
 				continue
 			}
-		}
 
-		// 写入成功后提交源端位点, 保证至少一次语义
-		if err := f.reader.CommitMessages(ctx, m); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return nil
+			// 加入批次
+			batch = append(batch, kafka.Message{
+				Key:     m.Key,
+				Value:   m.Value,
+				Headers: m.Headers,
+			})
+			commitBatch = append(commitBatch, m)
+
+			// 批次满了则立即刷新
+			if len(batch) >= batchSize {
+				if err := flushBatch(); err != nil && errors.Is(err, context.Canceled) {
+					return nil
+				}
 			}
-			log.Printf("提交位点失败: %v", err)
 		}
-
-		f.totalMsgs++
-		f.totalBytes += uint64(len(m.Key) + len(m.Value))
 	}
 }
 
